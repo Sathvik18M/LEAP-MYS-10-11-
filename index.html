@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LEAP C-Room — Fleet Control Dashboard | Mysuru</title>
+  <meta name="description" content="LEAP-MYS Control Room: Real-time fleet monitoring, route/ETA tracking, delay and cancellation management, and driver incident reporting for Mysuru city bus operations." />
+  <meta name="theme-color" content="#070d1a" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet CSS (local bundle — works on file:// without CORS issues) -->
+  <link rel="stylesheet" href="lib/leaflet.css" />
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════
+       TOP NAVIGATION BAR
+  ════════════════════════════════════════════════════════ -->
+  <header class="top-nav" id="topNav">
+    <!-- Brand -->
+    <div class="nav-brand">
+      <div class="nav-logo-wrap">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="#00d4ff" fill-opacity="0.12"/>
+          <path d="M5 22 L8 12 L24 12 L27 22 Z" stroke="#00d4ff" stroke-width="1.8" stroke-linejoin="round" fill="none"/>
+          <rect x="9" y="14" width="14" height="5" rx="1" fill="#00d4ff" fill-opacity="0.2" stroke="#00d4ff" stroke-width="1"/>
+          <circle cx="10" cy="22" r="2.5" fill="#00d4ff"/>
+          <circle cx="22" cy="22" r="2.5" fill="#00d4ff"/>
+          <path d="M5 17 L27 17" stroke="#00d4ff" stroke-width="1.2" opacity="0.4"/>
+        </svg>
+      </div>
+      <div class="nav-brand-text">
+        <span class="brand-name">LEAP</span>
+        <span class="brand-sub">C-ROOM · MYS</span>
+      </div>
+    </div>
+
+    <!-- Fleet Stats Chips -->
+    <nav class="nav-stats" id="navStats" aria-label="Fleet statistics">
+      <div class="stat-chip running" id="chipRunning" title="Active buses">
+        <span class="chip-dot"></span>
+        <span id="statActive">0</span>
+        <span class="chip-label">Active</span>
+      </div>
+      <div class="stat-chip delayed" id="chipDelayed" title="Delayed buses">
+        <span class="chip-dot"></span>
+        <span id="statDelayed">0</span>
+        <span class="chip-label">Delayed</span>
+      </div>
+      <div class="stat-chip cancelled" id="chipCancelled" title="Cancelled trips">
+        <span class="chip-dot"></span>
+        <span id="statCancelled">0</span>
+        <span class="chip-label">Cancelled</span>
+      </div>
+      <div class="stat-chip ontime" id="chipOntime" title="On-time percentage">
+        <span id="statOntime">—</span>
+        <span class="chip-label">On-Time</span>
+      </div>
+    </nav>
+
+    <!-- Right Controls -->
+    <div class="nav-right">
+      <div class="demo-badge" id="demoBadge" title="Simulation mode — no real hardware needed">
+        <span class="demo-dot"></span>
+        DEMO MODE
+      </div>
+      <div class="system-clock" id="systemClock" aria-label="System time">00:00:00</div>
+      <div class="conn-status" id="connStatus" title="Firebase connection">
+        <span class="conn-dot" id="connDot"></span>
+        <span id="connLabel">Connecting…</span>
+      </div>
+      <button class="nav-btn" id="btnManage" title="Bus & Device Management" onclick="app.openManagement()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M12 2v2M12 20v2M2 12h2M20 12h2M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41"/>
+        </svg>
+        Manage
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════
+       MAIN LAYOUT  (sidebar | map | detail)
+  ════════════════════════════════════════════════════════ -->
+  <main class="main-layout" id="mainLayout">
+
+    <!-- ─── LEFT SIDEBAR: Fleet List ─── -->
+    <aside class="sidebar" id="sidebar" aria-label="Fleet list">
+      <div class="sidebar-header">
+        <h2 class="sidebar-title">Fleet</h2>
+        <div class="sidebar-filters" role="group" aria-label="Filter buses">
+          <button class="filter-btn active" id="filterAll"     data-filter="all"      onclick="app.setFilter('all')">All</button>
+          <button class="filter-btn"        id="filterActive"  data-filter="active"   onclick="app.setFilter('active')">🟢</button>
+          <button class="filter-btn"        id="filterDelayed" data-filter="delayed"  onclick="app.setFilter('delayed')">⚠️</button>
+          <button class="filter-btn"        id="filterCancelled" data-filter="cancelled" onclick="app.setFilter('cancelled')">🔴</button>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div class="sidebar-search">
+        <input type="search" id="busSearch" class="search-input" placeholder="Search bus ID…" oninput="app.searchBus(this.value)" aria-label="Search buses" />
+      </div>
+
+      <!-- Fleet Cards -->
+      <div class="fleet-list" id="fleetList" role="list">
+        <div class="empty-state" id="fleetEmptyState">
+          <div class="spinner" aria-label="Loading"></div>
+          <p>Waiting for buses…</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ─── CENTER: Live Map ─── -->
+    <section class="map-panel" id="mapPanel" aria-label="Live bus map">
+      <div id="map" role="application" aria-label="Interactive fleet map"></div>
+
+      <!-- Floating Map Controls -->
+      <div class="map-controls" role="toolbar" aria-label="Map controls">
+        <button class="map-ctrl-btn" id="btnFitAll"      title="Fit all buses in view"  onclick="mapModule.fitAll()">⤢</button>
+        <button class="map-ctrl-btn" id="btnTglRoutes"   title="Toggle route lines"     onclick="mapModule.toggleRoutes()">🛣️</button>
+        <button class="map-ctrl-btn" id="btnTglStops"    title="Toggle stop markers"    onclick="mapModule.toggleStops()">📍</button>
+      </div>
+
+      <!-- Map Legend -->
+      <div class="map-legend" id="mapLegend">
+        <div class="legend-item"><span class="legend-dot" style="background:var(--c-running)"></span>Running</div>
+        <div class="legend-item"><span class="legend-dot" style="background:var(--c-delayed)"></span>Delayed</div>
+        <div class="legend-item"><span class="legend-dot" style="background:var(--c-paused)"></span>Paused</div>
+        <div class="legend-item"><span class="legend-dot" style="background:var(--c-cancelled)"></span>Cancelled</div>
+        <div class="legend-item"><span class="legend-dot" style="background:var(--c-resumed)"></span>Resumed</div>
+      </div>
+    </section>
+
+    <!-- ─── RIGHT PANEL: Bus Detail ─── -->
+    <aside class="detail-panel" id="detailPanel" aria-label="Bus detail">
+
+      <!-- Placeholder -->
+      <div class="detail-placeholder" id="detailPlaceholder">
+        <div class="placeholder-bus-icon">🚌</div>
+        <p class="placeholder-text">Select a bus<br/>to view details</p>
+        <p class="placeholder-hint">Click any bus in the fleet list or map marker</p>
+      </div>
+
+      <!-- Bus Detail Content -->
+      <div class="detail-content hidden" id="detailContent">
+
+        <!-- Header -->
+        <div class="detail-hdr">
+          <div class="detail-bus-id" id="detailBusId">—</div>
+          <span class="detail-status-badge" id="detailStatusBadge">—</span>
+        </div>
+
+        <!-- Quick Metrics -->
+        <div class="detail-metrics">
+          <div class="metric-card" title="Current speed">
+            <span class="metric-icon">⚡</span>
+            <span class="metric-val" id="detailSpeed">— km/h</span>
+            <span class="metric-lbl">Speed</span>
+          </div>
+          <div class="metric-card" title="Estimated arrival at next stop">
+            <span class="metric-icon">🕐</span>
+            <span class="metric-val accent" id="detailEta">— min</span>
+            <span class="metric-lbl">ETA Next</span>
+          </div>
+          <div class="metric-card" title="Delay from schedule">
+            <span class="metric-icon">⏱️</span>
+            <span class="metric-val" id="detailDelay">0 min</span>
+            <span class="metric-lbl">Delay</span>
+          </div>
+        </div>
+
+        <!-- Route Section -->
+        <div class="detail-section">
+          <div class="detail-sec-hdr">Route</div>
+          <div class="detail-route-name" id="detailRouteName">—</div>
+
+          <!-- Stop Progress -->
+          <div class="stop-progress">
+            <div class="stop-node current-stop">
+              <div class="stop-node-dot current"></div>
+              <div class="stop-node-info">
+                <span class="stop-node-lbl">Current Stop</span>
+                <span class="stop-node-name" id="detailCurrentStop">—</span>
+              </div>
+            </div>
+            <div class="stop-connector-line"></div>
+            <div class="stop-node next-stop">
+              <div class="stop-node-dot next"></div>
+              <div class="stop-node-info">
+                <span class="stop-node-lbl">Next Stop</span>
+                <span class="stop-node-name" id="detailNextStop">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Route Progress Bar -->
+          <div class="route-progress-wrap">
+            <div class="route-progress-bar" id="detailProgress"></div>
+          </div>
+          <div class="route-progress-labels">
+            <span class="rpl-start" id="progressStart">—</span>
+            <span class="rpl-pct" id="progressPct">0%</span>
+            <span class="rpl-end" id="progressEnd">—</span>
+          </div>
+        </div>
+
+        <!-- Driver & Device -->
+        <div class="detail-section">
+          <div class="detail-sec-hdr">Driver &amp; Device</div>
+          <div class="info-grid">
+            <div class="info-cell">
+              <span class="info-lbl">Driver ID</span>
+              <span class="info-val mono" id="detailDriver">—</span>
+            </div>
+            <div class="info-cell">
+              <span class="info-lbl">Device</span>
+              <span class="info-val mono" id="detailDevice">—</span>
+            </div>
+            <div class="info-cell">
+              <span class="info-lbl">Last Update</span>
+              <span class="info-val mono" id="detailLastUpdate">—</span>
+            </div>
+            <div class="info-cell">
+              <span class="info-lbl">Route ID</span>
+              <span class="info-val mono" id="detailRouteId">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Problem Report (shown only when problem exists) -->
+        <div class="detail-section problem-section hidden" id="problemSection">
+          <div class="detail-sec-hdr">⚠️ Problem Reported</div>
+          <div class="problem-card" id="problemCard">
+            <div class="problem-code-badge" id="problemCode">—</div>
+            <div class="problem-desc" id="problemDesc">—</div>
+          </div>
+        </div>
+
+        <!-- Delay Info (shown only when delayed) -->
+        <div class="detail-section delay-section hidden" id="delaySection">
+          <div class="detail-sec-hdr">⏱️ Delay Information</div>
+          <div class="delay-card" id="delayCard">
+            <div class="delay-duration" id="delayDuration">—</div>
+            <div class="delay-desc">Deviation from scheduled operation detected</div>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="detail-section">
+          <div class="detail-sec-hdr">Actions</div>
+          <div class="detail-actions">
+            <button class="detail-action-btn primary" id="btnCentreMap" onclick="mapModule.panToBus()">
+              <span>📍</span> Centre Map
+            </button>
+            <button class="detail-action-btn" id="btnViewLog" onclick="app.filterLogByBus()">
+              <span>📋</span> Filter Log
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════
+       BOTTOM: EVENT LOG
+  ════════════════════════════════════════════════════════ -->
+  <footer class="event-log" id="eventLog" aria-label="Event log">
+    <div class="log-header">
+      <h2 class="log-title">
+        <span class="log-title-icon">📋</span>
+        Activity Log
+        <span class="log-count-badge" id="logCountBadge">0</span>
+      </h2>
+      <div class="log-filters" role="group" aria-label="Filter events">
+        <button class="log-filter-btn active" data-filter="all"      onclick="eventsModule.setFilter('all')">All</button>
+        <button class="log-filter-btn"        data-filter="DELAY"    onclick="eventsModule.setFilter('DELAY')">Delays</button>
+        <button class="log-filter-btn"        data-filter="CANCEL"   onclick="eventsModule.setFilter('CANCEL')">Cancellations</button>
+        <button class="log-filter-btn"        data-filter="PROBLEM"  onclick="eventsModule.setFilter('PROBLEM')">Problems</button>
+        <button class="log-filter-btn"        data-filter="STOP_REACH" onclick="eventsModule.setFilter('STOP_REACH')">Arrivals</button>
+        <button class="log-filter-btn icon"   id="btnClearLog" title="Clear log" onclick="eventsModule.clear()">🗑️</button>
+        <button class="log-filter-btn icon"   id="btnExportLog" title="Export log" onclick="eventsModule.exportCSV()">⬇️</button>
+      </div>
+    </div>
+    <div class="log-stream" id="logStream" role="log" aria-live="polite" aria-relevant="additions">
+      <div class="log-empty-msg" id="logEmptyMsg">No events yet — waiting for activity…</div>
+    </div>
+  </footer>
+
+  <!-- ═══════════════════════════════════════════════════
+       MANAGEMENT MODAL
+  ════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop hidden" id="mgmtBackdrop" onclick="app.closeManagement()"></div>
+  <div class="modal hidden" id="mgmtModal" role="dialog" aria-modal="true" aria-label="Bus & Device Management">
+    <div class="modal-header">
+      <h2 class="modal-title">Bus &amp; Device Management</h2>
+      <button class="modal-close" onclick="app.closeManagement()" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="mgmtBody">
+      <!-- Populated by fleet.js -->
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       SCRIPTS
+  ════════════════════════════════════════════════════════ -->
+  <!-- Leaflet (local — no CORS on file://) -->
+  <script src="lib/leaflet.js"></script>
+
+  <!-- App Modules -->
+  <script src="js/eta.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/fleet.js"></script>
+  <script src="js/demo.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
